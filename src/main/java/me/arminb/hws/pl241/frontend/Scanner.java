@@ -1,4 +1,4 @@
-package me.arminb.hws.pl241;
+package me.arminb.hws.pl241.frontend;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 
 public class Scanner {
+    private static Scanner instance;
     private final static Logger logger = LoggerFactory.getLogger(Scanner.class);
     private FileReader fileReader;
     private Token currentToken;
@@ -17,8 +18,24 @@ public class Scanner {
     private int identifierCounter;
 
 
-    public Scanner(FileReader fileReader) {
-        this.fileReader = fileReader;
+    public static Scanner getInstance() {
+        if (instance == null) {
+            instance = new Scanner();
+            prePopulateWithBuiltinFunctions();
+        }
+        return instance;
+    }
+
+    private static void prePopulateWithBuiltinFunctions() {
+        instance.addIdentifier("InputNum"); // 0
+        instance.addIdentifier("x"); // 1 for OutputNum(x)
+        instance.addIdentifier("OutputNum"); // 2
+        instance.addIdentifier("OutputNewLine"); // 3
+
+    }
+
+    private Scanner() {
+        fileReader = FileReader.getInstance();
         id2StringMap = new HashMap<>();
         string2IdMap = new HashMap<>();
         reservedWordsMap = populateReservedWordsMap();
@@ -91,9 +108,7 @@ public class Scanner {
             if (string2IdMap.containsKey(scannedIdentifier)) {
                 lastIdentifier = string2IdMap.get(scannedIdentifier);
             } else {
-                id2StringMap.put(identifierCounter, scannedIdentifier);
-                string2IdMap.put(scannedIdentifier, identifierCounter);
-                lastIdentifier = identifierCounter++;
+                addIdentifier(scannedIdentifier);
             }
             return Token.IDENTIFIER;
         } else if(currentChar == '>' || currentChar == '<' || currentChar == '=' || currentChar == '!') {
@@ -102,6 +117,12 @@ public class Scanner {
             fileReader.next();
             return Token.ERROR;
         }
+    }
+
+    private void addIdentifier(String identifier) {
+        id2StringMap.put(identifierCounter, identifier);
+        string2IdMap.put(identifier, identifierCounter);
+        lastIdentifier = identifierCounter++;
     }
 
     private Token getReservedToken(String token) {
@@ -202,5 +223,13 @@ public class Scanner {
 
     public Token getCurrentToken() {
         return currentToken;
+    }
+
+    public int getCurrentLinePointer() {
+        return fileReader.getCurrentLinePointer();
+    }
+
+    public long getCurrentLineNumber() {
+        return fileReader.getCurrentLineNumber();
     }
 }

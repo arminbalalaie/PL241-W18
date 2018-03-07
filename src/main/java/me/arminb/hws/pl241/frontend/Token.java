@@ -1,4 +1,4 @@
-package me.arminb.hws.pl241;
+package me.arminb.hws.pl241.frontend;
 
 public enum Token {
     ERROR("", 0),

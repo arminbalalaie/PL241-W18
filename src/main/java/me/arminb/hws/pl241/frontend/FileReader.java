@@ -1,4 +1,4 @@
-package me.arminb.hws.pl241;
+package me.arminb.hws.pl241.frontend;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +8,7 @@ import java.nio.charset.Charset;
 import java.nio.file.Paths;
 
 public class FileReader {
+    private static FileReader instance;
     private final static Logger logger = LoggerFactory.getLogger(FileReader.class);
     private java.util.Scanner scanner;
     private String fileName;
@@ -16,7 +17,18 @@ public class FileReader {
     private long currentLineNumber;
     private char currentChar;
 
-    public FileReader(String fileName, Charset charset) {
+    public static void initialize(String fileName, Charset charset) {
+        instance = new FileReader(fileName, charset);
+    }
+
+    public static FileReader getInstance() {
+        if (instance == null) {
+            throw new RuntimeException("FileReader should be first initialized!");
+        }
+        return instance;
+    }
+
+    private FileReader(String fileName, Charset charset) {
         this.fileName = Paths.get(fileName).toAbsolutePath().toString();
         currentLineNumber = 0;
         currentLinePointer = 0;
