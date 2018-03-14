@@ -78,6 +78,14 @@ public class SymbolTable {
         return contains(identifier, ControlFlowGraph.getCurrent().getName());
     }
 
+    public void resetValueLists() {
+        for (String scope: symbols.keySet()) {
+            for (Symbol symbol: symbols.get(scope).values()) {
+                symbol.resetValueList();
+            }
+        }
+    }
+
     public void print() {
         for (String scope : symbols.keySet()) {
             for (Integer identifier : symbols.get(scope).keySet()) {
