@@ -270,10 +270,8 @@ public class Parser {
             return moveInstruction;
         } else { // array
             Result absoluteAddress = SymbolTable.getInstance().get(designatorResult.getValue()).getAbsoluteAddress();
-            absoluteAddress = absoluteAddress.plus(designatorResult.getArrayRelativeAddress());
-            Instruction addAInstruction = Instruction.adda(new Result(Result.Type.VALUE, 0),
-                    designatorResult.getArrayRelativeAddress());
-            return Instruction.store(expressionResult, absoluteAddress);
+            Instruction addAInstruction = Instruction.adda(absoluteAddress, designatorResult.getArrayRelativeAddress());
+            return Instruction.store(expressionResult, new Result(Result.Type.VALUE, addAInstruction.getIndex()));
         }
     }
 
@@ -372,6 +370,9 @@ public class Parser {
         // Connect entry block to fall through block
         entryBlock.setFallThroughBlock(fallThroughBlock);
         entryBlock.getLastInstruction().connectTo(fallThroughBlock.getFirstInstruction());
+        // set up domination information
+        entryBlock.addImmediateDomination(fallThroughBlock);
+        entryBlock.addImmediateDomination(joinBlock);
 
         matchToken(Token.IF);
         Result relationResult = relation();
@@ -393,6 +394,8 @@ public class Parser {
             // connect entry block to branch block
             entryBlock.setBranchBlock(branchBlock);
             lastThenInstruction.connectTo(branchBlock.getFirstInstruction());
+            // set up domination information
+            entryBlock.addImmediateDomination(branchBlock);
 
             // resetting value list for variables with phi instructions in join block
             resetValueListBasedOnPhiInstructions(joinBlock.getPhiInstructions());
@@ -470,6 +473,8 @@ public class Parser {
             // connects current block to loop header
             currentBlock.setFallThroughBlock(joinBlock);
             currentBlock.getLastInstruction().connectTo(joinBlock.getFirstInstruction());
+            // set up domination information
+            currentBlock.addImmediateDomination(joinBlock);
         }
         // set outer join block for nesting and phi propagation
         followBlock.setJoinBlock(currentBlock.getJoinBlock());
@@ -481,6 +486,9 @@ public class Parser {
         // sets loop body join block for phi instructions
         loopBodyBlock.setJoinBlock(joinBlock);
         loopBodyBlock.joinFromRight();
+        // set up domination information
+        joinBlock.addImmediateDomination(loopBodyBlock);
+        joinBlock.addImmediateDomination(followBlock);
 
         matchToken(Token.WHILE);
 
@@ -642,8 +650,8 @@ public class Parser {
                 }
             } else { // array
                 Result absoluteAddress = SymbolTable.getInstance().get(factorResult.getValue()).getAbsoluteAddress();
-                absoluteAddress = absoluteAddress.plus(factorResult.getArrayRelativeAddress());
-                factorResult.setValue(Instruction.load(absoluteAddress).getIndex());
+                Instruction addAInstruction = Instruction.adda(absoluteAddress, factorResult.getArrayRelativeAddress());
+                factorResult.setValue(Instruction.load(new Result(Result.Type.VALUE, addAInstruction.getIndex())).getIndex());
             }
         } else if (currentTokenIs(Token.OPEN_PARENTHESIS)) {
             matchToken(Token.OPEN_PARENTHESIS);

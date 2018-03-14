@@ -21,6 +21,7 @@ public class BasicBlock {
     private HashMap<Integer, Instruction> phiInstructions;
     private Instruction firstInstruction;
     private Instruction lastInstruction;
+    private List<BasicBlock> immediateDominations;
 
     private BasicBlock() {
         fallThroughBlock = null;
@@ -30,6 +31,7 @@ public class BasicBlock {
         firstInstruction = null;
         phiInstructions = new HashMap<>();
         joiningFromLeft = true;
+        immediateDominations = new ArrayList<>();
     }
 
     public static BasicBlock create() {
@@ -45,6 +47,14 @@ public class BasicBlock {
 
     public static BasicBlock getCurrent() {
         return current;
+    }
+
+    public void addImmediateDomination(BasicBlock basicBlock) {
+        this.immediateDominations.add(basicBlock);
+    }
+
+    public List<BasicBlock> getImmediateDominations() {
+        return immediateDominations;
     }
 
     public void addInstruction(Instruction instruction) {

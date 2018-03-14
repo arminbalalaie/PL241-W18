@@ -1,9 +1,11 @@
 package me.arminb.hws.pl241.cfg;
 
+import ch.qos.logback.core.util.FileUtil;
 import me.arminb.hws.pl241.frontend.Scanner;
 import me.arminb.hws.pl241.ssa.Instruction;
 import me.arminb.hws.pl241.symbol.Symbol;
 import me.arminb.hws.pl241.symbol.SymbolTable;
+import org.apache.commons.io.FileUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -76,8 +78,18 @@ public class ControlFlowGraph {
     }
 
     public static void generateGraphFiles() {
+        try {
+            if ((Files.exists(Paths.get("graphs")) && new File("graphs").isDirectory())) {
+                FileUtils.deleteDirectory(Paths.get("graphs").toFile());
+            }
+            Files.createDirectory(Paths.get("graphs"));
+        } catch (IOException e) {
+            throw new RuntimeException("Cannot create graphs directory!");
+        }
+
         for (ControlFlowGraph controlFlowGraph: controlFlowGraphs.values()) {
-            controlFlowGraph.generateGraphFile();
+            controlFlowGraph.generateControlFlowGraphFile();
+            controlFlowGraph.generateDominationTreeFile();
         }
     }
 
@@ -98,15 +110,29 @@ public class ControlFlowGraph {
         this.instructions.put(instruction.getIndex(), instruction);
     }
 
-    public void generateGraphFile() {
-        try {
-            if (!(Files.exists(Paths.get("graphs")) && new File("graphs").isDirectory())) {
-                Files.createDirectory(Paths.get("graphs"));
-            }
-        } catch (IOException e) {
-            throw new RuntimeException("Cannot create graphs directory!");
+    public void generateDominationTreeFile() {
+        StringBuilder retString = new StringBuilder();
+
+        retString.append("digraph " + getName() + " {\n\n");
+
+        for (BasicBlock basicBlock: basicBlocks) {
+            retString.append("\"" + basicBlock.toString() + "\" [shape=box];\n");
         }
 
+        retString.append("\n");
+
+        for (BasicBlock basicBlock: basicBlocks) {
+            for (BasicBlock immDom: basicBlock.getImmediateDominations()) {
+                retString.append(basicBlock.toString() + " -> " + immDom.toString() + ";\n");
+            }
+        }
+
+        retString.append("\n}");
+
+        createGraphFile(retString.toString(), "_dom");
+    }
+
+    public void generateControlFlowGraphFile() {
         StringBuilder retString = new StringBuilder();
 
         retString.append("digraph " + getName() + " {\n\n");
@@ -141,12 +167,20 @@ public class ControlFlowGraph {
 
         retString.append("\n}");
 
-        try {
-            Path graphFile = Paths.get("graphs", getName() + ".gv");
-            Path psFile = Paths.get("graphs", getName() + ".ps");
+        createGraphFile(retString.toString());
+    }
 
-            Files.write(Paths.get("graphs", getName() + ".gv"), retString.toString().getBytes());
-            Runtime.getRuntime().exec("dot -Tps " + graphFile.toString() + " -o " + psFile);
+    private void createGraphFile(String graphDescription) {
+        createGraphFile(graphDescription, "");
+    }
+
+    private void createGraphFile(String graphDescription, String fileNamePostfix) {
+        try {
+            Path graphFile = Paths.get("graphs", getName() + fileNamePostfix + ".gv");
+            Path psFile = Paths.get("graphs", getName() + fileNamePostfix + ".ps");
+
+            Files.write(graphFile, graphDescription.getBytes());
+            Runtime.getRuntime().exec("dot -Tps " + graphFile + " -o " + psFile);
         } catch (IOException e) {
             e.printStackTrace();
         }
