@@ -86,6 +86,16 @@ public class SymbolTable {
         }
     }
 
+    public void resetGlobalVariablesValueList() {
+        for (String scope: symbols.keySet()) {
+            for (Symbol symbol: symbols.get(scope).values()) {
+                if (symbol.isGlobal()) {
+                    symbol.resetValueList();
+                }
+            }
+        }
+    }
+
     public void print() {
         for (String scope : symbols.keySet()) {
             for (Integer identifier : symbols.get(scope).keySet()) {

@@ -334,6 +334,7 @@ public class Parser {
             }
         }
 
+        // predefined functions and procedures
         if (functionSymbol.getName().equals("InputNum")) {
             callResult.setValue(Instruction.read().getIndex());
         } else if (functionSymbol.getName().equals("OutputNum")) {
@@ -343,6 +344,9 @@ public class Parser {
         } else {
             callResult.setValue(Instruction.call(new Result(Result.Type.SELECTOR, functionIdentifier), params).getIndex());
         }
+
+        // reset value list of global vars in order to avoid possible side effects of global variables in the called function
+        SymbolTable.getInstance().resetGlobalVariablesValueList();
 
         if (functionSymbol != null && functionSymbol.getType() == SymbolType.PROCEDURE) {
             callResult.setType(Result.Type.PROCEDURE);
