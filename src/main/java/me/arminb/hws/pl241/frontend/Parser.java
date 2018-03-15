@@ -39,7 +39,6 @@ public class Parser {
             computation();
 
         ControlFlowGraph.generateGraphFiles();
-        System.out.println(ControlFlowGraph.getMain());
     }
 
     public void exitError(String errorMessage) {
@@ -229,10 +228,17 @@ public class Parser {
     }
 
     private Instruction statementSequence() {
-        Instruction retInstruction = statement();
+        Instruction retInstruction = BasicBlock.getCurrent().getLastInstruction();
+        Instruction statementInstruction = statement();
+        if (statementInstruction != null) {
+            retInstruction = statementInstruction;
+        }
         while (currentTokenIs(Token.SEMICOLON)) {
             matchToken(Token.SEMICOLON);
-            retInstruction = statement();
+            statementInstruction = statement();
+            if (statementInstruction != null) {
+                retInstruction = statementInstruction;
+            }
         }
         return retInstruction;
     }
@@ -240,7 +246,7 @@ public class Parser {
     private Instruction statement() {
         switch (scanner.getCurrentToken()) {
             case LET: return assignment();
-            case CALL: return ControlFlowGraph.getInstruction(functionCall().getValue());
+            case CALL: return ControlFlowGraph.getCurrent().getInstruction(functionCall().getValue());
             case IF: return ifStatement();
             case WHILE: return whileStatement();
             case RETURN: return returnStatement();
@@ -260,23 +266,52 @@ public class Parser {
         }
 
         if (designatorResult.getArrayIndices().isEmpty()) { // variable
-            Integer valueBeforeMove = SymbolTable.getInstance().get(designatorResult.getValue()).getLastValue();
-            Integer valueListSizeBeforeMove = SymbolTable.getInstance().get(designatorResult.getValue()).getValueList().size();
-            Instruction moveInstruction = Instruction.move(expressionResult, designatorResult);
-            moveInstruction.setAffectedVariable(designatorResult.getValue());
+            Symbol variableSymbol = SymbolTable.getInstance().get(designatorResult.getValue());
+            Result valueBeforeMove = variableSymbol.getLastValue();
+            Integer valueListSizeBeforeMove = variableSymbol.getValueList().size();
 
-            addPhiInstruction(designatorResult, valueListSizeBeforeMove, valueBeforeMove, moveInstruction.getIndex());
+            if (variableSymbol.isGlobal()) { // global
+                Result addResult;
+                if (expressionResult.getType() == Result.Type.CONSTANT) {
+                    Instruction addInstruction = Instruction.add(expressionResult, new Result(Result.Type.CONSTANT, 0));
+                    addResult = new Result(Result.Type.VALUE, addInstruction.getIndex());
+                } else {
+                    addResult = expressionResult;
+                }
+                Instruction storeInstruction = Instruction.store(addResult, variableSymbol.getAbsoluteAddress());
+                storeInstruction.setAffectedVariable(variableSymbol.getIdentifier());
+                variableSymbol.addValue(addResult);
+                addPhiInstruction(designatorResult, valueListSizeBeforeMove, valueBeforeMove, addResult);
+                return storeInstruction;
+            } else { // local
+                // deliberately skip this for copy propagation
+                //Instruction moveInstruction = Instruction.move(expressionResult, designatorResult);
 
-            return moveInstruction;
+                if (expressionResult.getType() == Result.Type.CONSTANT) { // constant assignment is handled by add by zero
+                    Instruction addInstruction = Instruction.add(expressionResult, new Result(Result.Type.CONSTANT, 0));
+                    Result addResult = new Result(Result.Type.VALUE, addInstruction.getIndex());
+                    variableSymbol.addValue(addResult);
+                    addPhiInstruction(designatorResult, valueListSizeBeforeMove, valueBeforeMove, addResult);
+                    return addInstruction;
+                } else { // value to value assignment
+                    if (valueBeforeMove == null || !valueBeforeMove.equals(expressionResult)) {
+                        variableSymbol.addValue(expressionResult);
+                        addPhiInstruction(designatorResult, valueListSizeBeforeMove, valueBeforeMove, expressionResult);
+                    }
+                    return null;
+                }
+            }
         } else { // array
             Result absoluteAddress = SymbolTable.getInstance().get(designatorResult.getValue()).getAbsoluteAddress();
             Instruction addAInstruction = Instruction.adda(absoluteAddress, designatorResult.getArrayRelativeAddress());
-            return Instruction.store(expressionResult, new Result(Result.Type.VALUE, addAInstruction.getIndex()));
+            Instruction storeInstruction = Instruction.store(expressionResult, new Result(Result.Type.VALUE, addAInstruction.getIndex()));
+            storeInstruction.setAffectedVariable(designatorResult.getValue());
+            return storeInstruction;
         }
     }
 
     private Instruction addPhiInstruction(Result designatorResult,Integer valueListSizeBeforeMove,
-                                          Integer beforeValue, Integer newValue) {
+                                          Result beforeValue, Result newValue) {
         if (BasicBlock.getCurrent().getJoinBlock() != null) { // We need to create phi instruction
             Instruction existingPhi = BasicBlock.getCurrent().getJoinBlock().getPhiInstruction(designatorResult.getValue());
             if (existingPhi == null) {
@@ -284,19 +319,19 @@ public class Parser {
                 Instruction phiInstruction;
                 if (BasicBlock.getCurrent().isJoiningFromLeft()) {
                     phiInstruction = Instruction.phi(BasicBlock.getCurrent().getJoinBlock(), designatorResult,
-                            new Result(Result.Type.VALUE, newValue), new Result(Result.Type.VALUE, beforeValue));
+                            newValue, beforeValue);
                 } else {
                     phiInstruction = Instruction.phi(BasicBlock.getCurrent().getJoinBlock(), designatorResult,
-                            new Result(Result.Type.VALUE, beforeValue), new Result(Result.Type.VALUE, newValue));
+                            beforeValue, newValue);
                 }
                 // set this for resetting value list
                 phiInstruction.setPhiBeforeValueListSize(valueListSizeBeforeMove);
                 return phiInstruction;
             } else {
                 if (BasicBlock.getCurrent().isJoiningFromLeft()) {
-                    existingPhi.setOperand1(new Result(Result.Type.VALUE, newValue));
+                    existingPhi.setOperand1(newValue);
                 } else {
-                    existingPhi.setOperand2(new Result(Result.Type.VALUE, newValue));
+                    existingPhi.setOperand2(newValue);
                 }
                 return existingPhi;
             }
@@ -305,7 +340,7 @@ public class Parser {
     }
 
     private Result functionCall() {
-        Result callResult = new Result(null, null);
+        Result callResult;
         List<Result> params = new ArrayList<>();
         matchToken(Token.CALL);
         matchToken(Token.IDENTIFIER);
@@ -334,25 +369,27 @@ public class Parser {
             }
         }
 
+        Result.Type functionType;
+        if (functionSymbol != null && functionSymbol.getType() == SymbolType.PROCEDURE) {
+            functionType = Result.Type.PROCEDURE;
+        } else {
+            functionType = Result.Type.VALUE;
+        }
+
         // predefined functions and procedures
         if (functionSymbol.getName().equals("InputNum")) {
-            callResult.setValue(Instruction.read().getIndex());
+            callResult = new Result(functionType, Instruction.read().getIndex());
         } else if (functionSymbol.getName().equals("OutputNum")) {
-            callResult.setValue(Instruction.write(params.get(0)).getIndex());
+            callResult = new Result(functionType, Instruction.write(params.get(0)).getIndex());
         } else if (functionSymbol.getName().equals("OutputNewLine")) {
-            callResult.setValue(Instruction.writeLine().getIndex());
+            callResult = new Result(functionType, Instruction.writeLine().getIndex());
         } else {
-            callResult.setValue(Instruction.call(new Result(Result.Type.SELECTOR, functionIdentifier), params).getIndex());
+            callResult = new Result(functionType, Instruction.call(new Result(Result.Type.SELECTOR, functionIdentifier), params).getIndex());
         }
 
+        // TODO here we are assuming a store in the called function so we need to add a kill in load anchor for CSE
         // reset value list of global vars in order to avoid possible side effects of global variables in the called function
         SymbolTable.getInstance().resetGlobalVariablesValueList();
-
-        if (functionSymbol != null && functionSymbol.getType() == SymbolType.PROCEDURE) {
-            callResult.setType(Result.Type.PROCEDURE);
-        } else {
-            callResult.setType(Result.Type.VALUE);
-        }
 
         return callResult;
     }
@@ -447,12 +484,13 @@ public class Parser {
             addPhiInstruction(new Result(Result.Type.SELECTOR, phiInstruction.getAffectedVariable()),
                     phiInstruction.getPhiBeforeValueListSize(),
                     SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).getLastValue(),
-                    phiInstruction.getIndex());
+                    new Result(Result.Type.VALUE, phiInstruction.getIndex()));
         }
 
         // updating value list for variables with phi instructions
         for (Instruction phiInstruction : joinBlock.getPhiInstructions()) {
-            SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).addValue(phiInstruction.getIndex());
+            SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).addValue(
+                    new Result(Result.Type.VALUE, phiInstruction.getIndex()));
         }
 
         return joinBlock.getLastInstruction();
@@ -534,7 +572,7 @@ public class Parser {
             addPhiInstruction(new Result(Result.Type.SELECTOR, phiInstruction.getAffectedVariable()),
                     phiInstruction.getPhiBeforeValueListSize(),
                     SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).getLastValue(),
-                    phiInstruction.getIndex());
+                    new Result(Result.Type.VALUE, phiInstruction.getIndex()));
         }
 
         // rename phi occurrences again using the outer join block
@@ -544,7 +582,8 @@ public class Parser {
 
         // updating value list for variables with phi instructions
         for (Instruction phiInstruction : joinBlock.getPhiInstructions()) {
-            SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).addValue(phiInstruction.getIndex());
+            SymbolTable.getInstance().get(phiInstruction.getAffectedVariable()).addValue(
+                    new Result(Result.Type.VALUE, phiInstruction.getIndex()));
         }
 
         BasicBlock.setCurrent(followBlock);
@@ -554,42 +593,45 @@ public class Parser {
 
     private void renameWhileInstructionsOperandsBasedonPhiInstructions(BasicBlock joinBlock) {
         List<Instruction> phiInstructions = joinBlock.getPhiInstructions();
-        HashMap<Integer, Integer> oldToNewMapping = new HashMap<>();
-        Instruction lastPhiInstruction = null;
+        HashMap<Result, Result> oldToNewMapping = new HashMap<>();
 
-        for (Instruction phiInstruction: phiInstructions) {
-            // this can be handy after CP and CSE
-            if (phiInstruction.getOperand1() != null && phiInstruction.getOperand1().getType() != Result.Type.CONSTANT &&
-                    oldToNewMapping.containsKey(phiInstruction.getOperand1().getValue())) {
-                phiInstruction.getOperand1().setValue(oldToNewMapping.get(phiInstruction.getOperand1().getValue()));
-            }
-            if (phiInstruction.getOperand2() != null && phiInstruction.getOperand2().getType() != Result.Type.CONSTANT &&
-                    oldToNewMapping.containsKey(phiInstruction.getOperand2().getValue())) {
-                phiInstruction.getOperand2().setValue(oldToNewMapping.get(phiInstruction.getOperand2().getValue()));
-            }
-            oldToNewMapping.put(phiInstruction.getOperand1().getValue(), phiInstruction.getIndex());
-            oldToNewMapping.put(phiInstruction.getOperand2().getValue(), phiInstruction.getIndex());
-            lastPhiInstruction = phiInstruction;
-        }
-
-        Instruction currentInstruction = lastPhiInstruction.getNext();
+        Instruction currentInstruction = joinBlock.getFirstInstruction();
         while (currentInstruction != null &&
                 (currentInstruction.getBasicBlock() == joinBlock || currentInstruction.getBasicBlock() == joinBlock.getFallThroughBlock())) {
-            if (currentInstruction.getOperand1() != null && currentInstruction.getOperand1().getType() != Result.Type.CONSTANT &&
-                    oldToNewMapping.containsKey(currentInstruction.getOperand1().getValue())) {
-                currentInstruction.getOperand1().setValue(oldToNewMapping.get(currentInstruction.getOperand1().getValue()));
-            }
-            if (currentInstruction.getOperand2() != null && currentInstruction.getOperand2().getType() != Result.Type.CONSTANT &&
-                    oldToNewMapping.containsKey(currentInstruction.getOperand2().getValue())) {
-                currentInstruction.getOperand2().setValue(oldToNewMapping.get(currentInstruction.getOperand2().getValue()));
-            }
-            if (currentInstruction.getParams() != null) {
-                for (Result param: currentInstruction.getParams()) {
-                    if (param.getType() != Result.Type.CONSTANT && oldToNewMapping.containsKey(param.getValue())) {
-                        param.setValue(oldToNewMapping.get(param.getValue()));
+
+            if (currentInstruction.getOpCode() != OpCode.PHI) {
+                if (currentInstruction.getOperand1() != null && currentInstruction.getOperand1().getType() != Result.Type.CONSTANT &&
+                        oldToNewMapping.containsKey(currentInstruction.getOperand1())) {
+                    currentInstruction.setOperand1(oldToNewMapping.get(currentInstruction.getOperand1()));
+                }
+                if (currentInstruction.getOperand2() != null && currentInstruction.getOperand2().getType() != Result.Type.CONSTANT &&
+                        oldToNewMapping.containsKey(currentInstruction.getOperand2())) {
+                    currentInstruction.setOperand2(oldToNewMapping.get(currentInstruction.getOperand2()));
+                }
+
+                if (currentInstruction.getParams() != null) {
+                    List<Result> newParams = new ArrayList<>();
+                    for (Result param : currentInstruction.getParams()) {
+                        if (param.getType() != Result.Type.CONSTANT && oldToNewMapping.containsKey(param)) {
+                            newParams.add(oldToNewMapping.get(param));
+                        } else {
+                            newParams.add(param);
+                        }
+                    }
+                    currentInstruction.setParams(newParams);
+                }
+
+            } else {
+                if (currentInstruction.getBasicBlock() == joinBlock) {
+                    if (currentInstruction.getOperand1() != null) {
+                        oldToNewMapping.put(currentInstruction.getOperand1(), new Result(Result.Type.VALUE, currentInstruction.getIndex()));
+                    }
+                    if (currentInstruction.getOperand2() != null) {
+                        oldToNewMapping.put(currentInstruction.getOperand2(), new Result(Result.Type.VALUE, currentInstruction.getIndex()));
                     }
                 }
             }
+
             currentInstruction = currentInstruction.getNext();
         }
     }
@@ -630,32 +672,47 @@ public class Parser {
             matchToken(Token.NUMBER);
             factorResult = new Result(Result.Type.CONSTANT, lastSeenNumber);
         } else if (currentTokenIs(Token.IDENTIFIER)) {
-            factorResult = designator();
+            Result designatorResult = designator();
             // designator is rvalue in factor. changes type from selector to variable
-            factorResult.setType(Result.Type.VALUE);
-            if (factorResult.getArrayIndices().isEmpty()) { // variable
-                Symbol variableSymbol = SymbolTable.getInstance().get(factorResult.getValue());
+            if (designatorResult.getArrayIndices().isEmpty()) { // variable
+                Symbol variableSymbol = SymbolTable.getInstance().get(designatorResult.getValue());
                 if (variableSymbol == null || variableSymbol.getLastValue() == null) {
-                    if (variableSymbol.isParam()) {
-                        factorResult.setValue(Instruction.load(variableSymbol.getAbsoluteAddress()).getIndex());
-                        variableSymbol.addValue(factorResult.getValue());
+                    if (variableSymbol == null) {
+                        factorResult = new Result(Result.Type.VALUE, null);
+                    } else if (variableSymbol.isParam()) {
+                        Instruction loadInstruction = Instruction.load(variableSymbol.getAbsoluteAddress());
+                        loadInstruction.setAffectedVariable(variableSymbol.getIdentifier());
+                        factorResult = new Result(Result.Type.VALUE, loadInstruction.getIndex());
+                        variableSymbol.addValue(factorResult);
                     } else if (variableSymbol.isGlobal()) {
-                        warning("Global variable " + scanner.identifierToString(factorResult.getValue())
+                        warning("Global variable " + scanner.identifierToString(designatorResult.getValue())
                                 + " might not be initialized!");
-                        factorResult.setValue(Instruction.load(variableSymbol.getAbsoluteAddress()).getIndex());
-                        variableSymbol.addValue(factorResult.getValue());
+                        Instruction loadInstruction = Instruction.load(variableSymbol.getAbsoluteAddress());
+                        loadInstruction.setAffectedVariable(variableSymbol.getIdentifier());
+                        factorResult = new Result(Result.Type.VALUE, loadInstruction.getIndex());
+                        variableSymbol.addValue(factorResult);
                     } else {
-                        error("Variable " + scanner.identifierToString(factorResult.getValue())
+                        error("Variable " + scanner.identifierToString(designatorResult.getValue())
                                 + " first needs to be initialized!");
-                        factorResult.setValue(null);
+                        factorResult = new Result(Result.Type.VALUE, null);
                     }
                 } else {
-                    factorResult.setValue(variableSymbol.getLastValue());
+                    Result lastValue = variableSymbol.getLastValue();
+                    if (lastValue.getType() != Result.Type.CONSTANT) {
+                        Instruction lastValueInstruction = ControlFlowGraph.getCurrent().getInstruction(lastValue.getValue());
+                        if (lastValueInstruction.getOpCode() == OpCode.PHI && lastValueInstruction.hasNullOperands()) {
+                            error("Variable " + scanner.identifierToString(designatorResult.getValue())
+                                    + " may not be initialized!");
+                        }
+                    }
+                    factorResult = lastValue;
                 }
             } else { // array
-                Result absoluteAddress = SymbolTable.getInstance().get(factorResult.getValue()).getAbsoluteAddress();
-                Instruction addAInstruction = Instruction.adda(absoluteAddress, factorResult.getArrayRelativeAddress());
-                factorResult.setValue(Instruction.load(new Result(Result.Type.VALUE, addAInstruction.getIndex())).getIndex());
+                Result absoluteAddress = SymbolTable.getInstance().get(designatorResult.getValue()).getAbsoluteAddress();
+                Instruction addAInstruction = Instruction.adda(absoluteAddress, designatorResult.getArrayRelativeAddress());
+                Instruction loadInstruction = Instruction.load(new Result(Result.Type.VALUE, addAInstruction.getIndex()));
+                loadInstruction.setAffectedVariable(designatorResult.getValue());
+                factorResult = new Result(Result.Type.VALUE, loadInstruction.getIndex());
             }
         } else if (currentTokenIs(Token.OPEN_PARENTHESIS)) {
             matchToken(Token.OPEN_PARENTHESIS);

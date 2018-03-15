@@ -16,7 +16,7 @@ public class Instruction {
     private Result operand1;
     private Result operand2;
     private List<Result> params; // for call instructions
-    private Integer affectedVariable; // for phi and move instructions
+    private Integer affectedVariable; // for phi instructions
     private Integer phiBeforeValueListSize; // for phi instructions and resetting value lists
     private Instruction next;
     private Instruction previous;
@@ -30,9 +30,9 @@ public class Instruction {
         this.index = instructionCounter++;
         this.params = null;
         this.basicBlock = basicBlock;
-        basicBlock.addInstruction(this);
-        ControlFlowGraph.getCurrent().addInstruction(this);
         branchDestinationFor = new ArrayList<>();
+        ControlFlowGraph.getCurrent().addInstruction(this);
+        basicBlock.addInstruction(this);
     }
 
     public static void resetInstructionCounter() {
@@ -58,7 +58,7 @@ public class Instruction {
     public static Instruction move(Result expression, Result designator) {
         Instruction moveInstruction = getNewInstruction(OpCode.MOVE, expression, null);
         moveInstruction.setOperand2(new Result(Result.Type.VALUE, moveInstruction.getIndex()));
-        SymbolTable.getInstance().get(designator.getValue()).addValue(moveInstruction.getIndex());
+        SymbolTable.getInstance().get(designator.getValue()).addValue(new Result(Result.Type.VALUE, moveInstruction.getIndex()));
         return moveInstruction;
     }
 
@@ -92,7 +92,7 @@ public class Instruction {
 
     public static Instruction branch(Result target) {
         Instruction branchInstruction = getNewInstruction(OpCode.BRA, target, null);
-        ControlFlowGraph.getInstruction(target.getValue()).getBranchDestinationFor().add(branchInstruction);
+        ControlFlowGraph.getCurrent().getInstruction(target.getValue()).getBranchDestinationFor().add(branchInstruction);
         return branchInstruction;
     }
 
@@ -146,6 +146,10 @@ public class Instruction {
         return opCode == null && operand1 == null && operand2 == null;
     }
 
+    public boolean hasNullOperands() {
+        return operand1 == null || operand2 == null;
+    }
+
     public Integer getIndex() {
         return index;
     }
@@ -168,15 +172,15 @@ public class Instruction {
 
     public void setOperand1(Result operand1) {
         if (opCode == OpCode.BRA) {
-            ControlFlowGraph.getInstruction(operand1.getValue()).getBranchDestinationFor().add(this);
+            ControlFlowGraph.getCurrent().getInstruction(operand1.getValue()).getBranchDestinationFor().add(this);
         }
         this.operand1 = operand1;
     }
 
     public void setOperand2(Result operand2) {
-        if (opCode == OpCode.BEQ || opCode == OpCode.BNE || opCode == OpCode.BGE || opCode == OpCode.BGT ||
-                opCode == OpCode.BLE || opCode == OpCode.BLT) {
-            ControlFlowGraph.getInstruction(operand2.getValue()).getBranchDestinationFor().add(this);
+        if (operand2 != null && (opCode == OpCode.BEQ || opCode == OpCode.BNE || opCode == OpCode.BGE || opCode == OpCode.BGT ||
+                opCode == OpCode.BLE || opCode == OpCode.BLT)) {
+            ControlFlowGraph.getCurrent().getInstruction(operand2.getValue()).getBranchDestinationFor().add(this);
         }
         this.operand2 = operand2;
     }
@@ -203,32 +207,31 @@ public class Instruction {
             return "null";
         }
 
-        switch (opCode) {
-            case CALL: {
-                StringBuilder retString = new StringBuilder();
-                retString.append(index + ": ");
-                retString.append(OpCode.CALL);
-                retString.append(" " + Scanner.getInstance().identifierToString(operand1.getValue()));
-                for (Result param : params) {
+        StringBuilder retString = new StringBuilder();
+        if (opCode == OpCode.CALL){
+            retString.append(index + ": ");
+            retString.append(OpCode.CALL);
+            retString.append(" " + Scanner.getInstance().identifierToString(operand1.getValue()));
+            for (Result param : params) {
 
-                    retString.append(" " + param.getValue());
-                }
-                return retString.toString();
+                retString.append(" " + param.getValue());
             }
-            case PHI: case MOVE: {
-                return index + ": " + opCode + " " + operand1 + " " + operand2
-                        + " (" + Scanner.getInstance().identifierToString(getAffectedVariable()) + ")";
-            }
-            default: {
-                if (operand1 == null && operand2 == null) {
-                    return index + ": " + opCode;
-                } else if (operand2 == null) {
-                    return index + ": " + opCode + " " + operand1;
-                } else {
-                    return index + ": " + opCode + " " + operand1 + " " + operand2;
-                }
+        } else if (opCode == OpCode.PHI) {
+            retString.append(index + ": " + opCode + " " + operand1 + " " + operand2);
+        } else {
+            if (operand1 == null && operand2 == null) {
+                retString.append(index + ": " + opCode);
+            } else if (operand2 == null) {
+                retString.append(index + ": " + opCode + " " + operand1);
+            } else {
+                retString.append(index + ": " + opCode + " " + operand1 + " " + operand2);
             }
         }
+
+        if (getAffectedVariable() != null) {
+            retString.append(" (" + Scanner.getInstance().identifierToString(getAffectedVariable()) + ")");
+        }
+        return retString.toString();
     }
 
     public List<Result> getParams() {

@@ -1,6 +1,7 @@
 package me.arminb.hws.pl241.cfg;
 
 import ch.qos.logback.core.util.FileUtil;
+import me.arminb.hws.pl241.frontend.FileReader;
 import me.arminb.hws.pl241.frontend.Scanner;
 import me.arminb.hws.pl241.ssa.Instruction;
 import me.arminb.hws.pl241.symbol.Symbol;
@@ -22,7 +23,7 @@ public class ControlFlowGraph {
     public static final String MAIN = "main";
     private static Map<String, ControlFlowGraph> controlFlowGraphs;
     private static ControlFlowGraph current;
-    private static HashMap<Integer, Instruction> instructions;
+    private HashMap<Integer, Instruction> instructions;
 
     // Instance
     private List<BasicBlock> basicBlocks;
@@ -33,12 +34,12 @@ public class ControlFlowGraph {
         this.name = name;
         basicBlocks = new ArrayList<>();
         basicBlockCounter = 0;
+        instructions = new HashMap<>();
     }
 
     public static void initialize() {
         controlFlowGraphs = new HashMap<>();
         controlFlowGraphs.put(MAIN, new ControlFlowGraph(MAIN));
-        instructions = new HashMap<>();
     }
 
     public static void setCurrentCFG(ControlFlowGraph controlFlowGraph) {
@@ -73,16 +74,18 @@ public class ControlFlowGraph {
         return controlFlowGraphs.get(MAIN);
     }
 
-    public static Instruction getInstruction(Integer index) {
+    public Instruction getInstruction(Integer index) {
         return instructions.get(index);
     }
 
     public static void generateGraphFiles() {
         try {
-            if ((Files.exists(Paths.get("graphs")) && new File("graphs").isDirectory())) {
-                FileUtils.deleteDirectory(Paths.get("graphs").toFile());
+            Path graphDirectory = Paths.get("graphs", FileReader.getInstance().getFileName());
+            if (!(Files.isDirectory(graphDirectory))) {
+                graphDirectory.toFile().mkdirs();
             }
-            Files.createDirectory(Paths.get("graphs"));
+
+            FileUtils.cleanDirectory(graphDirectory.toFile());
         } catch (IOException e) {
             throw new RuntimeException("Cannot create graphs directory!");
         }
@@ -176,8 +179,10 @@ public class ControlFlowGraph {
 
     private void createGraphFile(String graphDescription, String fileNamePostfix) {
         try {
-            Path graphFile = Paths.get("graphs", getName() + fileNamePostfix + ".gv");
-            Path psFile = Paths.get("graphs", getName() + fileNamePostfix + ".ps");
+            Path graphFile = Paths.get("graphs", FileReader.getInstance().getFileName(),
+                    getName() + fileNamePostfix + ".gv");
+            Path psFile = Paths.get("graphs", FileReader.getInstance().getFileName(),
+                    getName() + fileNamePostfix + ".ps");
 
             Files.write(graphFile, graphDescription.getBytes());
             Runtime.getRuntime().exec("dot -Tps " + graphFile + " -o " + psFile);

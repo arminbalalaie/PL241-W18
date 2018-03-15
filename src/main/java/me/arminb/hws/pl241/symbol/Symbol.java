@@ -15,7 +15,7 @@ public class Symbol {
     private final String scope;
     private final List<Integer> dimensions;
     private final List<Symbol> parameters;
-    private List<Integer> valueList;
+    private List<Result> valueList;
     private final Boolean isParam;
     private Integer relativeBaseAddress;
 
@@ -137,7 +137,7 @@ public class Symbol {
         return type == SymbolType.ARRAY;
     }
 
-    public void addValue(Integer value) {
+    public void addValue(Result value) {
         this.valueList.add(value);
     }
 
@@ -151,7 +151,7 @@ public class Symbol {
         valueList = new ArrayList<>();
     }
 
-    public Integer getLastValue() {
+    public Result getLastValue() {
         if (this.valueList.isEmpty()) {
             return null;
         }
@@ -169,7 +169,7 @@ public class Symbol {
         return isParam;
     }
 
-    public List<Integer> getValueList() {
+    public List<Result> getValueList() {
         return valueList;
     }
 

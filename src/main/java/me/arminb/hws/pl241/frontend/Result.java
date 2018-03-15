@@ -10,7 +10,7 @@ import java.util.List;
 
 public class Result {
 
-    public static enum Type {
+    public enum Type {
         CONSTANT,
         VALUE, // var, func and array
         PROCEDURE,
@@ -18,19 +18,25 @@ public class Result {
         ADDRESS
     }
 
-    public static enum Address {
-        DF(0),
-        SP(1),
-        FP(2);
+    public enum Address {
+        DF(0, new Result(Type.ADDRESS, 0)),
+        SP(1,new Result(Type.ADDRESS, 1)),
+        FP(2, new Result(Type.ADDRESS, 2));
 
-        int value;
+        private int value;
+        private Result result;
 
-        Address(int value) {
+        Address(int value, Result result) {
             this.value = value;
+            this.result = result;
         }
 
         public Result getResult() {
-            return new Result(Type.ADDRESS, value);
+            return result;
+        }
+
+        public int getValue() {
+            return value;
         }
 
         public static Address fromInteger(int value) {
@@ -42,14 +48,14 @@ public class Result {
         }
     }
 
-    private Type type;
-    private Integer value; // number for constant, null for proc, ssaIndex for func, var, rel, and symbolId for selector and address
+    private final Type type;
+    private final Integer value; // number for constant, null for proc, ssaIndex for func, var, rel, and symbolId for selector and address
     private List<Result> arrayIndices; // arrayIndices expression's ssaIndex or number
     private HashMap<Token, OpCode> tokenToOpCodeMapper;
 
     public Result(Type type, Integer value) {
         this.type = type;
-        this.value = value;
+        this.value = new Integer(value);
         arrayIndices = null;
         prePopulateTokenToOpCodeMapper();
     }
@@ -64,28 +70,16 @@ public class Result {
         tokenToOpCodeMapper.put(Token.GREATER_THAN_OR_EQUAL, OpCode.BLT);
     }
 
-    public void setType(Type type) {
-        this.type = type;
-    }
-
-    public void setValue(Integer value) {
-        this.value = value;
-    }
-
     public void setArrayIndices(List<Result> arrayIndices) {
         this.arrayIndices = arrayIndices;
     }
 
-    public boolean isArrayIndicesConstant() {
-        for (Result index: arrayIndices) {
-            if (index.getType() != Type.CONSTANT) {
-                return false;
-            }
-        }
-        return true;
-    }
-
+    // this can be only used for arrays
     public Result getArrayRelativeAddress() {
+        if (type != Type.SELECTOR || arrayIndices.isEmpty()) {
+            throw new RuntimeException("This method should only be used for arrays!");
+        }
+
         Symbol arraySymbol = SymbolTable.getInstance().get(getValue());
         Integer lastDimensionIndex = Math.min(arrayIndices.size(), arraySymbol.getDimensions().size()) - 1;
 
@@ -164,6 +158,24 @@ public class Result {
         }
 
         return new Result(Type.VALUE, Instruction.conditionalBranch(tokenToOpCodeMapper.get(relationToken), cmpResult).getIndex());
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        if (!Result.class.isAssignableFrom(obj.getClass())) {
+            return false;
+        }
+        final Result other = (Result) obj;
+        if (this.type != other.type) {
+            return false;
+        }
+        if (this.value != other.value) {
+            return false;
+        }
+        return true;
     }
 
     @Override

@@ -89,4 +89,8 @@ public class FileReader {
     public char getCurrentChar() {
         return currentChar;
     }
+
+    public String getFileName() {
+        return new File(fileName).getName();
+    }
 }
